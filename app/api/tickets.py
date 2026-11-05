@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 from fastapi import APIRouter, Depends, HTTPException, Form
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
@@ -20,10 +21,21 @@ async def approve(ticket_pk:int,_:None=Depends(require_operator),session:AsyncSe
         ticket=await session.scalar(select(Ticket).where(Ticket.id==ticket_pk).with_for_update())
         if not ticket:raise HTTPException(404,"Ticket not found")
         if ticket.status in {"Sending","Sent"}:return {"status":ticket.status}
-        if ticket.status!="Draft Ready" or not ticket.draft:raise HTTPException(409,"Draft is not ready")
+        if not ticket.draft:raise HTTPException(409,"Draft is not ready")
+        if ticket.status=="Failed":
+            existing=await session.scalar(select(Outbox).where(Outbox.ticket_id==ticket.id).with_for_update())
+            if existing and existing.status=="failed":raise HTTPException(409,"Delivery has exhausted its retry limit")
+        if ticket.status not in {"Draft Ready","Approved","Failed"}:raise HTTPException(409,"Draft is not ready")
         ticket.status="Approved"
         insert_fn=pg_insert if session.get_bind().dialect.name=="postgresql" else sqlite_insert
         await session.execute(insert_fn(Outbox).values(ticket_id=ticket.id,idempotency_key="reply-"+ticket.event_id,status="pending").on_conflict_do_nothing(index_elements=[Outbox.ticket_id]))
+    if os.getenv("VERCEL"):
+        try:
+            from app.queues import publish_delivery
+            await publish_delivery(ticket_pk)
+        except Exception as exc:
+            raise HTTPException(503,"Delivery queue is temporarily unavailable; retry approval") from exc
+        return {"status":"Approved"}
     await deliver_outbox(ticket_pk,session)
     return {"status":ticket.status}
 @router.post("/tickets/{ticket_pk}/reject")
@@ -44,10 +56,10 @@ async def deliver_outbox(ticket_pk:int,session:AsyncSession):
     async with session.begin():
         ticket=await session.scalar(select(Ticket).where(Ticket.id==ticket_pk).with_for_update())
         outbox=await session.scalar(select(Outbox).where(Outbox.ticket_id==ticket_pk).with_for_update())
-        if not ticket or not outbox or outbox.status=="sent":return
+        if not ticket or not outbox or outbox.status in {"sent","failed"}:return True
         now=now_utc()
-        if outbox.status=="sending" and outbox.lease_until and outbox.lease_until>now:return
-        if outbox.status=="pending" and outbox.available_at>now:return
+        if outbox.status=="sending" and outbox.lease_until and outbox.lease_until>now:return False
+        if outbox.status=="pending" and outbox.available_at>now:return False
         outbox.status="sending";outbox.lease_until=now+timedelta(seconds=45);ticket.status="Sending"
         reply_url,ticket_id,draft,key=ticket.reply_url,ticket.ticket_id,ticket.draft,outbox.idempotency_key
     try:
@@ -60,9 +72,11 @@ async def deliver_outbox(ticket_pk:int,session:AsyncSession):
             outbox.available_at=now_utc()+timedelta(seconds=min(300,2**outbox.attempts))
             outbox.status="pending" if outbox.attempts<get_settings().worker_max_attempts else "failed";outbox.lease_until=None
             ticket.status="Failed";ticket.last_error=outbox.last_error
-        return
+            retryable=outbox.status=="pending"
+        return not retryable
     async with session.begin():
         outbox=await session.scalar(select(Outbox).where(Outbox.ticket_id==ticket_pk).with_for_update())
         ticket=await session.scalar(select(Ticket).where(Ticket.id==ticket_pk).with_for_update())
         outbox.status="sent";outbox.lease_until=None;outbox.last_error=None
         ticket.status="Sent";ticket.last_error=None
+    return True

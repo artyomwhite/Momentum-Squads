@@ -16,10 +16,14 @@ dependencies = [
   "email-validator>=2.2,<3",
   "itsdangerous>=2.2,<3",
   "pytest>=8,<9",
-  "pytest-asyncio>=0.24,<2"
+  "pytest-asyncio>=0.24,<2",
+  "vercel-queue[typed]"
 ]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 [tool.vercel]
 entrypoint = "app.main:app"
+
+[[tool.vercel.subscribers]]
+entrypoint = "app.queues"

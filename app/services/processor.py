@@ -7,12 +7,13 @@ from app.models import Job, Ticket, now_utc
 from app.services.knowledge import search_articles
 from app.services.ai import generate_draft
 logger=logging.getLogger(__name__)
-async def claim_job():
+async def claim_job(job_id: int | None = None):
     cfg=get_settings()
     async with SessionLocal() as s:
         now=now_utc()
         q=select(Job).where(or_((Job.status=="queued")&(Job.available_at<=now),
           (Job.status=="processing")&(Job.lease_until<now))).order_by(Job.id).with_for_update(skip_locked=True).limit(1)
+        if job_id is not None:q=q.where(Job.id==job_id)
         job=await s.scalar(q)
         if not job:return None
         job.status="processing";job.attempts+=1;job.lease_until=now+timedelta(seconds=cfg.worker_lease_seconds)
@@ -33,6 +34,7 @@ async def process_job(job_id:int):
             else:job.status="queued";job.available_at=now_utc()+timedelta(seconds=min(300,2**job.attempts+random.random()*2))
             job.lease_until=None
         await s.commit()
+        return job.status in {"done","failed"}
 async def run_worker():
     while True:
         job_id=await claim_job()
