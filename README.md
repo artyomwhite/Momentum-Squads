@@ -81,9 +81,16 @@ Run pytest. Tests do not need an OpenAI key. PostgreSQL integration tests are ne
 
 ## Vercel and Neon deployment
 
-Vercel supports FastAPI on its Python runtime. Use a Neon pooled PostgreSQL URL and apply Alembic migrations as a release step. The FastAPI entrypoint is declared in pyproject.toml and its function duration in vercel.json. Run both alembic upgrade head and python -m app.seed against Neon before serving production traffic. The Vercel Queues subscriber is declared in pyproject.toml. Queue activation, a Neon resource, Vercel project setup, production secrets and deployment still require account access and have not been performed.
+The test deployment is available at https://momentum-squads.vercel.app/. It is protected by Vercel team authentication; sign in to the Vercel team if prompted, then use the app credentials below.
 
-After authorization, configure DATABASE_URL, OPERATOR_USERNAME, OPERATOR_PASSWORD, SESSION_SECRET, OPENAI_API_KEY and allowed Helpdesk hosts as Vercel environment variables. Vercel Queues uses deployment OIDC for publish and subscriber delivery. Verify webhook acceptance, queue retries, operator authentication, outbox delivery and health endpoints after deployment.
+**Test operator login**
+
+- Username: `operator`
+- Password: stored as the sensitive `OPERATOR_PASSWORD` variable in Vercel. Do not publish it in this public repository; the test password is shared separately with the reviewer.
+
+The deployment uses a Neon pooled PostgreSQL URL. Its schema and initial knowledge articles have been provisioned in Neon. The FastAPI entrypoint is `api/index.py`, routed through the rewrite in `vercel.json`. The Vercel Queues subscriber is declared in `pyproject.toml`.
+
+The Vercel production build is ready. The seeded database was verified. Before testing Helpdesk webhooks, set `HELPDESK_ALLOWED_HOSTS` to the real Helpdesk hostname in Vercel and redeploy. `OPENAI_API_KEY` is optional; without it, the local fallback creates deterministic drafts. Vercel Queues uses deployment OIDC for publish and subscriber delivery; queue processing and external Helpdesk delivery still need a live smoke test.
 
 ## Known limitations
 
