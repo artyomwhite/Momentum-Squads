@@ -24,7 +24,13 @@ async def login(request:Request,username:str=Form(...),password:str=Form(...)):
     username_matches=hmac.compare_digest(username,cfg.operator_username)
     password_matches=hmac.compare_digest(password,cfg.operator_password)
     if not username_matches or not password_matches:
-        logger.warning("Operator login rejected (username_matches=%s, password_matches=%s)",username_matches,password_matches)
+        logger.warning(
+            "Operator login rejected (username_matches=%s, password_matches=%s, submitted_password_length=%s, configured_password_length=%s)",
+            username_matches,
+            password_matches,
+            len(password),
+            len(cfg.operator_password),
+        )
         return templates.TemplateResponse(request=request,name="login.html",context={"error":"Invalid credentials"},status_code=401)
     request.session["operator"]=username
     return RedirectResponse("/",303)
