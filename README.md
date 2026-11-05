@@ -8,6 +8,8 @@ AI-assisted support triage for a fictional project analytics SaaS. The service s
 flowchart LR
   H[Helpdesk webhook] -->|event and job transaction| DB[(PostgreSQL)]
   DB --> W[Worker: lease and SKIP LOCKED]
+  W -. local .-> L[Compose worker]
+  W -. Vercel .-> Q[Vercel Queues subscriber]
   W --> K[PostgreSQL full-text retrieval]
   K --> AI[OpenAI or no-key fallback]
   AI --> DB
@@ -55,7 +57,7 @@ Health is GET /health; readiness is GET /ready; knowledge list/search are GET /k
 
 Webhook handling validates the payload and allowlisted reply host, then commits the event and queue row together. It does not call the LLM. Workers use SKIP LOCKED so competing workers do not claim the same ready row. A lease allows another worker to recover work after a process crash. Retry count is bounded.
 
-The local compose stack uses a long-running worker. Vercel Functions are request-scoped, not a persistent Python worker. The current Vercel Python runtime supports FastAPI. Vercel Queues provides push consumers, at-least-once delivery and retries; its Python SDK is currently beta. Vercel Hobby Cron runs only once per day, so Cron cannot provide near-real-time processing. Production requires a managed queue subscription and Neon PostgreSQL, with durable database state retained for idempotency and recovery. Queue/account/resource setup must be validated before deployment; this repository does not represent the local worker as deployed on Vercel.
+The local compose stack uses a long-running worker. Vercel Functions are request-scoped, not a persistent Python worker. The current Vercel Python runtime supports FastAPI. Vercel Queues provides push consumers, at-least-once delivery and retries; its Python SDK is currently beta. Vercel Hobby Cron runs only once per day, so Cron cannot provide near-real-time processing. Production uses the Vercel Queues subscriber declared in pyproject.toml and Neon PostgreSQL, with durable database state retained for idempotency and recovery. Queue publishing waits for Vercel Queue acceptance; if it fails, the webhook returns 503 so the sender can retry the same event. Validate the external queue and Neon account before production traffic.
 
 ## AI and fallback
 
@@ -79,14 +81,13 @@ Run pytest. Tests do not need an OpenAI key. PostgreSQL integration tests are ne
 
 ## Vercel and Neon deployment
 
-Vercel supports FastAPI on its Python runtime. Use a Neon pooled PostgreSQL URL and apply Alembic migrations as a release step. The FastAPI entrypoint is declared in pyproject.toml and its function duration in vercel.json. Run both alembic upgrade head and python -m app.seed against Neon before serving production traffic. Production queue execution still requires a configured Vercel Queues (beta) consumer or another managed queue adapter; queue credentials, a Neon resource, Vercel project setup, production secrets, GitHub push and deployment need account authorization and have not been performed.
+Vercel supports FastAPI on its Python runtime. Use a Neon pooled PostgreSQL URL and apply Alembic migrations as a release step. The FastAPI entrypoint is declared in pyproject.toml and its function duration in vercel.json. Run both alembic upgrade head and python -m app.seed against Neon before serving production traffic. The Vercel Queues subscriber is declared in pyproject.toml. Queue activation, a Neon resource, Vercel project setup, production secrets and deployment still require account access and have not been performed.
 
-After authorization, configure DATABASE_URL, OPERATOR_USERNAME, OPERATOR_PASSWORD, SESSION_SECRET, OPENAI_API_KEY and queue settings as Vercel secrets. Restrict production Helpdesk hosts. Verify webhook, operator authentication, queue consumer, delivery and health endpoints after deployment.
+After authorization, configure DATABASE_URL, OPERATOR_USERNAME, OPERATOR_PASSWORD, SESSION_SECRET, OPENAI_API_KEY and allowed Helpdesk hosts as Vercel environment variables. Vercel Queues uses deployment OIDC for publish and subscriber delivery. Verify webhook acceptance, queue retries, operator authentication, outbox delivery and health endpoints after deployment.
 
 ## Known limitations
 
-- Vercel Queues' Python SDK is beta and its current APIs may change.
-- The local worker is not a Vercel worker; production queue subscriber configuration remains.
+- The Vercel queue SDK is beta and its Python APIs may change. Queue publication and consumer delivery need a live Vercel smoke test.
 - Demo shared-password auth must be replaced for public use.
 - Receiver idempotency support is required to safely retry ambiguous network timeouts.
 - A real production smoke test cannot happen before external project setup and deployment.

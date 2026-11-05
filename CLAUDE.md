@@ -20,6 +20,6 @@
 
 ## Production caveats
 - A Vercel Function is not a persistent worker. Hobby Cron runs once daily.
-- Vercel Queues Python support is beta; validate it and configure the production consumer.
+- Production jobs publish to the declared Vercel Queues subscriber; the Python SDK is beta and needs a live account smoke test.
 - Replace demonstration operator auth/session values before public use.
 - Exactly-once external delivery depends on receiver idempotency.
