@@ -1,0 +1,66 @@
+services:
+  db:
+    restart: unless-stopped
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: momentum
+      POSTGRES_USER: momentum
+      POSTGRES_PASSWORD: momentum
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U momentum -d momentum"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    restart: unless-stopped
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://momentum:momentum@db:5432/momentum
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPERATOR_USERNAME: ${OPERATOR_USERNAME:-operator}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-local-demo-secret-change-me}
+      HELPDESK_ALLOWED_HOSTS: mock-helpdesk,localhost,127.0.0.1
+      HELPDESK_MOCK_URL: http://mock-helpdesk:8001
+      FALLBACK_DELAY_SECONDS: ${FALLBACK_DELAY_SECONDS:-5}
+      MAX_LLM_REQUESTS_PER_MINUTE: ${MAX_LLM_REQUESTS_PER_MINUTE:-60}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-120}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db: {condition: service_healthy}
+      mock-helpdesk: {condition: service_started}
+  worker:
+    restart: unless-stopped
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://momentum:momentum@db:5432/momentum
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      HELPDESK_ALLOWED_HOSTS: mock-helpdesk,localhost,127.0.0.1
+      FALLBACK_DELAY_SECONDS: ${FALLBACK_DELAY_SECONDS:-5}
+      MAX_LLM_REQUESTS_PER_MINUTE: ${MAX_LLM_REQUESTS_PER_MINUTE:-60}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-120}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
+    depends_on:
+      api: {condition: service_healthy}
+  mock-helpdesk:
+    restart: unless-stopped
+    build: .
+    command: ["uvicorn", "app.mock_helpdesk:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["8001:8001"]
+volumes:
+  postgres_data:
