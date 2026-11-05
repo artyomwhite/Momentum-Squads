@@ -79,7 +79,7 @@ Run pytest. Tests do not need an OpenAI key. PostgreSQL integration tests are ne
 
 ## Vercel and Neon deployment
 
-Vercel supports FastAPI on its Python runtime. Use a Neon pooled PostgreSQL URL and apply Alembic migrations as a release step. The API function configuration is prepared in vercel.json and api/index.py. Production queue execution still requires a configured Vercel Queues (beta) consumer or another managed queue adapter; queue credentials, a Neon resource, Vercel project setup, production secrets, GitHub push and deployment need account authorization and have not been performed.
+Vercel supports FastAPI on its Python runtime. Use a Neon pooled PostgreSQL URL and apply Alembic migrations as a release step. The FastAPI entrypoint is declared in pyproject.toml and its function duration in vercel.json. Run both alembic upgrade head and python -m app.seed against Neon before serving production traffic. Production queue execution still requires a configured Vercel Queues (beta) consumer or another managed queue adapter; queue credentials, a Neon resource, Vercel project setup, production secrets, GitHub push and deployment need account authorization and have not been performed.
 
 After authorization, configure DATABASE_URL, OPERATOR_USERNAME, OPERATOR_PASSWORD, SESSION_SECRET, OPENAI_API_KEY and queue settings as Vercel secrets. Restrict production Helpdesk hosts. Verify webhook, operator authentication, queue consumer, delivery and health endpoints after deployment.
 
